@@ -1,4 +1,4 @@
-# Mediasoup Sample App
+# start Mediasoup sfu App
 
 A minimal Client/Server app based on Mediasoup and Socket.io
 
@@ -7,21 +7,9 @@ A minimal Client/Server app based on Mediasoup and Socket.io
 
 * [Mediasoup v3 requirements](https://mediasoup.org/documentation/v3/mediasoup/installation/#requirements)
 * Node.js >= v8.6
-* [Browserify](http://browserify.org/)
+* [watchify](http://watchify.org/)
+* [bundle.js]
 
-
-## Run
-
-The server app runs on any supported platform by Mediasoup. The client app runs on a single browser tab.
-```
-# create and modify the configuration
-# make sure you set the proper IP for mediasoup.webRtcTransport.listenIps
-cp config.example.js config.js
-nano config.js
-
-# install dependencies and build mediasoup
-npm install
-
-# create the client bundle and start the server app
-npm start
-```
+## have to GET ssl 
+`or generate ssl by openssl` 
+* use #openssl req# to get key.pem & cert.pem 
