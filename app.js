@@ -15,11 +15,9 @@ app.get('/',(req, res)=>{
     res.send('hello from mediasoup app');
 })
 
-
 const options = {
     key : fs.readFileSync(__dirname + '/server/certs/key.pem','utf-8'), // have to get real ssl later
     cert : fs.readFileSync(__dirname + '/server/certs/cert.pem','utf-8')// have to get real ssl later
-
 }
 
 const httpsServer = https.createServer(options,app)
@@ -33,8 +31,10 @@ const peers = io.of('/mediasoup')
 let worker
 let router
 let producerTransport
-let consumerTransport
 let producer
+let consumerTransport
+let consumer
+
 
 const createWorker = async() => {
     worker = await mediasoup.createWorker({
@@ -42,7 +42,6 @@ const createWorker = async() => {
         rtcMaxPort : 2020,
     })
     console.log(`worker pid ${worker.pid}`)
-
     worker.on('died', error=> {
         console.error('mediasoup worker has died')
         setTimeout(()=>process.exit(1),2000) //2초 안에 탈출
@@ -54,7 +53,8 @@ const createWebRTCTransport = async(callback)=>{
     try{
         const webRTCTransport_options = {
             listenIps :[{
-                ip : '127.0.0.1'
+                ip : '0.0.0.0', // server side ip have to changed
+                announcedIp : '127.0.0.1' // this is our host machine
             }],
             enableUdp : true,
             enableTcp : true,
@@ -71,7 +71,6 @@ const createWebRTCTransport = async(callback)=>{
         transport.on('close',()=>{
             console.log('transport closed');
         })
-
         callback({
             params : {
                 id : transport.id,
@@ -113,23 +112,26 @@ const mediaCodecs = [
 
 peers.on('connection', async socket=>{ // socket => client
     console.log(socket.id)
-
     socket.emit('connection-success', {
-        socketId: socket.id
+        socketId: socket.id,
+        existsProducer: producer ? true: false,
     })
-
     socket.on('disconnect', ()=>{
         //do some cleanup
         console.log('peer disconnected')
     })
-
-    router = await worker.createRouter({mediaCodecs})
-    socket.on('getRtpCapabilities', (callback)=>{
-        const rtpCapabilities = router.rtpCapabilities;
-        console.log('rtp Capabilities',rtpCapabilities);
-
-        callback({rtpCapabilities})
+ // we will use room at next step
+    socket.on('createRoom', async(callback)=>{ // we get event for creating room
+        if (router === undefined){ // router is representing room
+            router = await worker.createRouter({mediaCodecs}) // if there is not router we will make router
+        }
+        getRtpCapabilities(callback)
     })
+
+    const getRtpCapabilities = (callback) =>{
+        const rtpCapabilities = router.rtpCapabilities
+        callback({rtpCapabilities})
+    }
 
     socket.on('createWebRTCTransport',async({sender}, callback)=>{
         console.log(`Is this a sender request ${sender}`) // sender = ture 인지 확인 
@@ -141,7 +143,7 @@ peers.on('connection', async socket=>{ // socket => client
             consumerTransport = await createWebRTCTransport(callback) // consumer
         }
     })
-
+    //about producers
     socket.on('transport-connect', async({ dtlsParameters}) =>{
         console.log('DTLS PARAMS...', {dtlsParameters})
         await producerTransport.connect({dtlsParameters})
@@ -149,11 +151,10 @@ peers.on('connection', async socket=>{ // socket => client
     socket.on('transport-produce',async({kind, rtpParameters, appData}, callback) =>{
         producer = await producerTransport.produce({
             kind,
-            rtpParameters,
+            rtpParameters
         })
 
         console.log('Producer ID : ', producer.id, producer.kind)
-
         producer.on('transportclose', ()=>{
             console.log('transport for this producer closed')
             producer.close()
@@ -162,4 +163,50 @@ peers.on('connection', async socket=>{ // socket => client
             id : producer.id
         })
     })
+
+    //about recevers
+    socket.on('transport-recv-connect', async({dtlsParameters})=> {
+        console.log('DTLS PARAMS...', {dtlsParameters})
+        await consumerTransport.connect({dtlsParameters})
+    })
+    socket.on('consume', async({rtpCapabilities},callback) =>{
+        try{
+            if(router.canConsume({
+                producerId : producer.id,
+                rtpCapabilities
+            })){
+                consumer = await consumerTransport.consume({
+                    producerId : producer.id,
+                    rtpCapabilities,
+                    paused : true  //have to resume this play back
+                })
+            }
+            consumer.on('transportclose',()=>{
+                console.log('transport close from consumer')
+            })
+            consumer.on('producerclose',()=>{
+                console.log('transport close from producer')
+            })
+            const params = {
+                id : consumer.id,
+                producerId : producer.id,
+                kind: consumer.kind,
+                rtpParameters : consumer.rtpParameters
+            }
+            callback({params})
+        }catch(error)
+        {
+            console.log(error.message)
+            callback({
+                params : {
+                    error:error
+                }
+            })
+        }
+    })
+    socket.on('consumer-resume', async()=>{
+        console.log('consumer resume')
+        await consumer.resume()
+    })
+
 })
