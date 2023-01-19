@@ -13,3 +13,7 @@ A minimal Client/Server app based on Mediasoup and Socket.io
 ## have to GET ssl 
 `or generate ssl by openssl` 
 * use #openssl req# to get key.pem & cert.pem 
+
+## 기능설명
+---
+추후 업데이트 예정
