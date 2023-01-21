@@ -7,5 +7,10 @@ package-lock.json
 /test.js
 /index.html
 
+video
+
 .greenlockrc
 greenlock.d/
+
+*-backup.html
+*-backup.js
