@@ -4,8 +4,8 @@
   "description": "Mediasoup Sample App",
   "main": "server.js",
   "scripts": {
-    "start": "nodemon app.js",
-    "watch": "watchify public/index.js -o public/bundle.js -v"
+    "start": "nodemon server.js",
+    "watch": "watchify public/client.js -o public/bundle.js -v"
   },
   "author": "",
   "license": "ISC",
