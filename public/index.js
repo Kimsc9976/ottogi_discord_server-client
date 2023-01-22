@@ -152,16 +152,6 @@ const createSendTransport = async ()=>{
     connectSendTransport()
   })
 }
-// server have to inform the client of a new producer just joined // and ready for consume
-socket.on('new-producer',({producerId}) => signalNewConsumerTransport(producerId))
-const getProducers = () => {
-  socket.emit('getProducers', (producerIds) =>{
-    console.log("producer Ids", producerIds)
-    // producerIds.forEach(id => signalNewConsumerTransport(id)) 
-    producerIds.forEach(signalNewConsumerTransport)
-  })
-}
-// ======
 // for connect [Send transport & produce]
 const connectSendTransport = async()=>{
   producer = await producerTransport.produce(params) // this event will triggered when producer Transport start
@@ -174,6 +164,17 @@ const connectSendTransport = async()=>{
     //close video tarck
   })
 }
+
+// server have to inform the client of a new producer just joined // and ready for consume
+socket.on('new-producer',({producerId}) => signalNewConsumerTransport(producerId))
+const getProducers = () => {
+  socket.emit('getProducers', (producerIds) =>{
+    console.log("producer Ids", producerIds)
+    producerIds.forEach(id => signalNewConsumerTransport(id)) 
+    // producerIds.forEach(signalNewConsumerTransport)
+  })
+}
+// ======
 //==========================================================================================================
 //==========================================================================================================
 //========================================================================================================== 
@@ -189,10 +190,14 @@ const signalNewConsumerTransport = async (remoteProducerId)=>{
       console.log(params.error)
       return
     }
+    console.log(`PARAMS... ${params}`)
     let consumerTransport;
     try {
       consumerTransport = device.createRecvTransport(params)
     } catch (error) {
+      // exceptions: 
+      // {InvalidStateError} if not loaded
+      // {TypeError} if wrong arguments.
       console.log(error)
       return
     }
@@ -228,12 +233,12 @@ const connectRecvTransport = async(consumerTransport, remoteProducerId, serversi
       return
     }
     
-    console.log(`Consumer Params ${params}`)
+    console.log(`Consumer Params ${{params}}`)
     const consumer = await consumerTransport.consume({
       id : params.id,
       producerId : params.producerId,
       kind : params.kind,
-      rtpParameters : params.rtpParameters
+      rtpParameters : params.rtpParameters,
     })
 
     consumerTransports = [
@@ -252,12 +257,10 @@ const connectRecvTransport = async(consumerTransport, remoteProducerId, serversi
     videoContainer.appendChild(newElem);
 
     const {track} = await consumer
-    console.log("트랙 여기있다.",track)
     // remoteVideo.srcObject = new MediaStream([track]) //this is for 1-1 connection 
     document.getElementById(remoteProducerId).srcObject = new MediaStream([track])
 
     // socket.emit('consumer-resume')//this is for 1-1 connection 
-    console.log("씨발..",params.serverside_ConsumerId)
     socket.emit('consumer-resume', {serverside_ConsumerId : params.serverside_ConsumerId})
   })
 }
@@ -275,7 +278,6 @@ socket.on('producer-closed', ({remoteProducerId})=>{
   //server notification is received when producer closed streaming
   //we need to close the client-side consumer and associated transport
   const producerToClose = consumerTransports.find(transportData => transportData.producerId === remoteProducerId)
-  console.log("닫을거 친절히",producerToClose)
   producerToClose.consumerTransport.close()
   producerToClose.consumer.close()
   consumerTransports = consumerTransports.filter(transportData => transportData.producerId !== remoteProducerId)
