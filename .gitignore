@@ -3,11 +3,9 @@ node_modules/
 package-lock.json
 /config.js
 /client.js
-/server.js
-/test.js
+/test.*
 /index.html
 
-video
 
 .greenlockrc
 greenlock.d/
