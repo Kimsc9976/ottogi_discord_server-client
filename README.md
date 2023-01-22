@@ -43,11 +43,51 @@
 
 <br>
 
+## **4.1 기능 설명**
+---
+### Server 쪽
+
+현재 서버 쪽에서 NoSQL 방식으로 저장하는 data는 총 5가지
+
+|**데이터**|**설명**|**저장 방식**|
+|:--------:|:-----------:|:-------|
+|Rooms|존재하는 룸의 {Router, 및 peers의 ip}|{ roomName1: { Router, peers: [ socketId1, ... ] }, ...}|
+|Peers|Peer의 IP 정보에 따른, Room의 위치, socket 그리고 peer들의 정보`(Workers의 id인지 제공자의 id인지는 확인해봐야함)`|{ socketId1: { roomName1, socket, transports = [id1, id2,] }, producers = [id1, id2,] }, consumers = [id1, id2,], __ }, ...}|
+|Transports|:-------|[ { socketId1, roomName1, transport, consumer }, ... ]|
+|Producers|Client가 접속했을 때, producers의 정보|[ { socketId1, roomName1, producer, }, ... ]|
+|Consumers|Client가 meida를 제공해줘야할 Consumer의 정보|[ { socketId1, roomName1, consumer, }, ... ]|
+
+
+<br> 
+
+### 1. **방 입장**
+```   
+socket.on('joinRoom', async({roomName}, callback) => 
+{
+  // create router if room is note exist
+  const router1 = await createRoom(roomName, socket.id)
+  peers[socket.id] = {
+    ....
+  }
+  // get Router RTP capabilities
+  const rtpCapabilities = router1.rtpCapabilities
+  callback({rtpCapabilities})
+})
+```
+  - createRoom 함수를 통해 
+    1. 방이 있을 경우 : Rooms 에 저장된 Router id를 통해 입장
+    2. 방이 없을 경우 : Rooms 에 Router id를 저장 후 방을 생성
+
+<br>
+
+
 ## **5.1 구현 정도**
 ---
 1. 방 입장 기능 구현
 
-2. 방의 종류에 따라 유저간 연결이 달라짐
+2. 입장한 방에 따라 유저간의 연결이 다름
+<br>
+![result](./docs/data/img/result_problem.jpg)
 
 3. 영상 정보 전송 
     - 오디오 정보 미구현
@@ -56,18 +96,21 @@
 4. Room의 개수 및 Peers의 상태 저장
 <br><br>
 
-영상은 추후 참조
+<현재 진행 상황>
+![result](./docs/data/video/result.gif)
 <br>
 
 ## **5.2 에러 사항**
 ---
-1. Ctrl + C, Ctrl + V 로 방에 입장 시 error 발생
-2. 현재 영상이 모든 방 포함 최대 2개까지만 공유됨
-3. 퇴장시 영상정보 삭제가 안됨
-4. 에러 이후 server복구가 안됨
+1. Ctrl + C, Ctrl + V 로 방에 입장 시 error 발생 <br>-> 입장시에 발생하는 문제인것 같음
+2. ~~현재 영상이 모든 방 포함 최대 2개까지만 공유됨~~ 
+3. ~~퇴장시 영상정보 삭제가 안됨~~ 23.01.22 update 
+4. 에러 이후 server복구가 안 됨
+5. Edge로 들어가면 접근이 안 됨<br>(다른 브라우저들은 확인 못해봄)
 <br><br>
 
-영상은 추후 참조
+<에러 사항>
+![problem1_gif](./docs/data/video/problem_cannot_update_video_morethan3.gif)
 <br>
 
 ## **6. Media soup 사용한 이유**
