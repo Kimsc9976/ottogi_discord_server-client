@@ -87,7 +87,8 @@ socket.on('joinRoom', async({roomName}, callback) =>
 
 2. 입장한 방에 따라 유저간의 연결이 다름
 <br>
-![result](./docs/data/img/result_problem.jpg)
+
+![result1](./docs/data/img/result_problem.jpg)
 
 3. 영상 정보 전송 
     - 오디오 정보 미구현
