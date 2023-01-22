@@ -1,8 +1,10 @@
 module.exports = {
   listenIp: '0.0.0.0',
   listenPort: 3000,
-  sslCrt: '/etc/ssl/certs/ssl-cert-snakeoil.pem',
-  sslKey: '/etc/ssl/private/ssl-cert-snakeoil.key',
+  // sslCrt: '/etc/ssl/certs/ssl-cert-snakeoil.pem',
+  // sslKey: '/etc/ssl/private/ssl-cert-snakeoil.key',
+  cert : process.env.HTTPS_CERT_FULLCHAIN || `${__dirname}/server/certs/cert.pem`,// have to change for get `${__dirname}/server/certs/fullchain.pem`,
+  key  : process.env.HTTPS_CERT_PRIVKEY ||  `${__dirname}/server/certs/key.pem`, // have to change for get`${__dirname}/server/certs/privkey.pem`,
   mediasoup: {
     // Worker settings
     worker: {
@@ -50,6 +52,9 @@ module.exports = {
         {
           ip: '127.0.0.1',
           announcedIp: null,
+          // 제가 사용한 기본 default값 입니다. 
+          // ip: '0.0.0.0', // server side ip which have to change
+          // announcedIp: '127.0.0.1', // // this is our hostmachine
         }
       ],
       maxIncomingBitrate: 1500000,
