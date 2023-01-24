@@ -27,9 +27,9 @@
 
 ## **3. 아키텍처**
 ---
-![architecture](./docs/data/img/architecture.jpg)
 
-<br>
+<img src="./docs/data/img/architecture.jpg" width="100%" height="100%">
+<br><br><br> 
 
 
 ## **4. 기능**
@@ -40,8 +40,36 @@
 |**정보 저장**| - 방의 갯수, 유저간의 연결 상태를 NoSQL형식으로 저장<br>|
 | 추가 <br>기능 | 기능 설명 ... |
 
-
 <br>
+
+## **4.0 설치 순서**
+---
+  ## 1. 기본 요구사항
+  - node version >= v16.0.0
+  - python version >= 3.6 with PIP
+  - GNU make
+  ## 2. OS 별 주의사항
+  1. Mac, Linux<br>
+    - gcc and g++ >= 4.9 or clang (with C++11 support) <br>
+    - cc and c++ commands to use gcc/g++ or clang/clang++ executables.
+  2. Window<br>
+   - GNU make 를 [MinGW](https://sourceforge.net/projects/mingw/)로 다운받아야함<br>
+    - 기본 building tool 선택후 설치<br>
+   - ISRG Root X1 (Local Computer에)다운받아서 SSL 인증 받아두기<br>
+    - https://letsencrypt.org/certs/isrgrootx1.der
+  ## 3. requirements.txt 에 있는 python 모듈 설치
+  - pip install -r requirements.txt
+  - Mac, 및 Ubuntu 환경에서는 파이썬 에러가 발생하는지 파악못함
+  ## 4. npm insatll --save mediasoup mediasoup-client 진행
+  - 일반적으로 Building 문제가 대다수
+  - windows 에는 python 설치에러 발생할 수 도 있음
+    - App execution aliases - 앱 별칭관리에서 **python 관련 한 것들 다 off**
+  ## 5. Openssl 로 인증서 수동생성 
+  - [인증서 수동생성 방법](https://www.ssl.com/ko/%EB%B0%A9%EB%B2%95/openssl%EC%9D%84-%EC%82%AC%EC%9A%A9%ED%95%98%EC%97%AC-%EC%9D%B8%EC%A6%9D%EC%84%9C-%EC%84%9C%EB%AA%85-%EC%9A%94%EC%B2%AD-csr%EC%9D%84-%EC%88%98%EB%8F%99%EC%9C%BC%EB%A1%9C-%EC%83%9D%EC%84%B1/)
+  - Key 명은 입력 전, config.example.js 확인 바람 (최종적으로 사용해야할 key의 명칭도 있음)
+  - 생성한 Key는 ./server/certs/에 저장
+  <br>
+<br><br><br>
 
 ## **4.1 기능 설명**
 ---
@@ -83,35 +111,42 @@ socket.on('joinRoom', async({roomName}, callback) =>
 
 ## **5.1 구현 정도**
 ---
-1. 방 입장 기능 구현
+1. 방 입장 기능 구현 (room 정보에 따라 입장하는 방이 다름)
 
-2. 입장한 방에 따라 유저간의 연결이 다름
-<br>
-
-![result1](./docs/data/img/result_problem.jpg)
+2. 입장한 방에 따라 유저간의 정보 통신 시작
 
 3. 영상 정보 전송 
     - 오디오 정보 미구현
     - 화면 공유 미구현
 
-4. Room의 개수 및 Peers의 상태 저장
+4. 버튼을 이용한 Streaming, Finishing 구현
+
+5. Room의 개수 및 Peers의 상태 저장
 <br><br>
 
-<현재 진행 상황>
-![result](./docs/data/video/result.gif)
 <br>
 
 ## **5.2 에러 사항**
 ---
-1. Ctrl + C, Ctrl + V 로 방에 입장 시 error 발생 <br>-> 입장시에 발생하는 문제인것 같음
-2. ~~현재 영상이 모든 방 포함 최대 2개까지만 공유됨~~ 
+1. ~~Ctrl + C, Ctrl + V 로 방에 입장 시 error 발생~~ <br>23.01.24 update - 버튼이 구현되면서 에러가 발생하지 않게됨<br>->(새로고침 및 ctrl +c, v 하면서 media정보 전송에 문제가 있었는듯)
+2. ~~현재 영상이 모든 방 포함 최대 2개까지만 공유됨~~ 23.01.23 update 
 3. ~~퇴장시 영상정보 삭제가 안됨~~ 23.01.22 update 
-4. 에러 이후 server복구가 안 됨
-5. Edge로 들어가면 접근이 안 됨<br>(다른 브라우저들은 확인 못해봄)
-<br><br>
+4. 에러 이후 server복구가 안 됨 <br> -> 에러 발생사항 제작 중
+5. Edge로 들어가면 접근이 안 됨 -> 핸들러와 관련이 있음<br>(다른 브라우저들은 조사해봐야함)
+<img src = "./docs/data/img/mediasoupHandler.jpg" weidth = "40%">
+    - API는 [mediasoup - client](https://mediasoup.org/documentation/v3/mediasoup-client/api/) 참조 바람
+<br>
 
-<에러 사항>
-![problem1_gif](./docs/data/video/problem_cannot_update_video_morethan3.gif)
+6. 여러 User가 Publish를 연속적 빠르게 하면, Consumer 화면이 검은색 화면으로 출력됨
+7. ~~Finish를 하면 화면이 종료가 안되는 현상 발생~~ 23.01.25 update - 다시 검은화면으로 변경됨
+8. Streaming 중 간헐적으로 publish 혹은 Finish를 누르면 error 가 발생함 <br>-> try{}catch{}로 잡기 때문에 피해는 안가는 것으로 보임
+
+<br>
+
+
+<총 진행 상황>
+![total_](./docs/data/video/result01.gif)
+
 <br>
 
 ## **6. Media soup 사용한 이유**
