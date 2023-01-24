@@ -21467,18 +21467,22 @@ const socket = io('/mediasoup')
 // TCP/IP 통신은 일반적으로 sokect통신 이라고 부른다. 
 
 socket.on('connection-success', ({socketId, existProducer}) => {
-  console.log("--", socketId);
-  getLocalStream()
+  console.log('--', socketId, 'Enters the room.', existProducer);
+
 })
 
 // if we don't supply it will be null
 const roomName = window.location.pathname.split('/')[2]
+
+let Streaming
+let isStreaming = false
 
 let device;
 let rtpCapabilities;
 let producerTransport;
 let producer; //if some client is consumer -> we have to note that there is proudcer on server
 let consumerTransports = [];
+
 let params = {
   //mediasoup params
   encoding : [
@@ -21505,7 +21509,11 @@ let params = {
 
 // about streaming
 const getLocalStream = () =>{
-  navigator.mediaDevices.getUserMedia({
+  if(isStreaming  === true){
+    console.log("already streaming")
+    return
+  }
+  Streaming = navigator.mediaDevices.getUserMedia({
     audio : false,
     video : {
       width : {
@@ -21526,7 +21534,9 @@ const getLocalStream = () =>{
 }
 
 const streamSuccess = (stream)=>{
+  isStreaming = true
   localVideo.srcObject = stream;
+  Streaming = stream
   const track = stream.getVideoTracks()[0];
   params = {
     track, ...params
@@ -21554,8 +21564,6 @@ const createDevice = async () =>{
     })
     console.log('Device RTP Capabilities', rtpCapabilities)
     //once the device load, create transport
-    // goCreateTransport() // For 1:1 Connection
-
     createSendTransport() // this cuz for everyone is producer & consumer
   }catch (error)
   {
@@ -21575,7 +21583,7 @@ const createSendTransport = async ()=>{
       console.log(params.error)
       return
     }
-    console.log(params)
+    console.log("params  : ",params)
     producerTransport = device.createSendTransport(params) // ready for send streaming data
     producerTransport.on('connect', async({dtlsParameters}, callback, errback) =>{
       try{
@@ -21614,8 +21622,13 @@ const createSendTransport = async ()=>{
     connectSendTransport()
   })
 }
+
+
 // for connect [Send transport & produce]
 const connectSendTransport = async()=>{
+  // Warning! [readystate가 왜 업데이트가 안되는지 파악이 안됨.... (Refresh가 되지 않음)] 23.01.24 -> readonly라 직접변경은 안됨
+  params.track.enabled = true // 따라서 임의로 꺼내서 사용중인데, 조건을 주어 제어를 할 필요 있음
+
   producer = await producerTransport.produce(params) // this event will triggered when producer Transport start
   producer.on('trackened', ()=>{
     console.log('track ended')
@@ -21636,7 +21649,6 @@ const getProducers = () => {
     // producerIds.forEach(signalNewConsumerTransport)
   })
 }
-// ======
 //==========================================================================================================
 //==========================================================================================================
 //========================================================================================================== 
@@ -21689,6 +21701,7 @@ const connectRecvTransport = async(consumerTransport, remoteProducerId, serversi
     remoteProducerId,
     serverside_ConsumerTransportId,
   },
+  
   async({params}) =>{
     if (params.error){
       console.log('Cannot consume')
@@ -21712,16 +21725,13 @@ const connectRecvTransport = async(consumerTransport, remoteProducerId, serversi
         consumer,
       }
     ]
-    const newElem = document.createElement('div')
-    newElem.setAttribute('id', `td-${remoteProducerId}`)
-    newElem.setAttribute('class','remoteVideo')
-    newElem.innerHTML = `<video id="${remoteProducerId}" autoplay class = "video"></video>`
-    videoContainer.appendChild(newElem);
 
+//============ 후에 펑션으로 업데이트 시키기
+    createVideo(false, remoteProducerId)
+//========================================
     const {track} = await consumer
     // remoteVideo.srcObject = new MediaStream([track]) //this is for 1-1 connection 
     document.getElementById(remoteProducerId).srcObject = new MediaStream([track])
-
     // socket.emit('consumer-resume')//this is for 1-1 connection 
     socket.emit('consumer-resume', {serverside_ConsumerId : params.serverside_ConsumerId})
   })
@@ -21735,17 +21745,91 @@ const connectRecvTransport = async(consumerTransport, remoteProducerId, serversi
 // for prodcer(getLocalStream) -> get capability + createdevice + create send transport + connect sendTranseport & produce
 // fur consumer(go consume) -> get capability + createdevice + create receive transport + connect create receive transport
 
-
-socket.on('producer-closed', ({remoteProducerId})=>{
+socket.on('producer-closed', async({remoteProducerId})=>{
   //server notification is received when producer closed streaming
   //we need to close the client-side consumer and associated transport
-  const producerToClose = consumerTransports.find(transportData => transportData.producerId === remoteProducerId)
-  producerToClose.consumerTransport.close()
-  producerToClose.consumer.close()
-  consumerTransports = consumerTransports.filter(transportData => transportData.producerId !== remoteProducerId)
-  videoContainer.removeChild(document.getElementById(`td-${remoteProducerId}`))
+//========= 상대방 종료시 데이터 삭제
+  await deleteVideo(false, remoteProducerId)
+//==============================
+  isStreaming = false
 })
-// 디스코드에서는 사용하니까 일단은 남겨두었다.
-// btnLocalVideo.addEventListener('click', getLocalStream)
-// btnRecvSendTransport.addEventListener('click', goConsume)
+
+const finishStream = async () =>{ // ProducerId : 내 아이디 , remoteProducerIds : Consumers의 정보들 
+  /// 정보 지워버리기.
+  // can find with consumerTransports
+  console.log(producer)
+  try{
+    if(producer)
+    {
+      console.log("Producer exited roomdd")
+      await socket.emit('exitRoom',{
+        rtpCapabilities : device.rtpCapabilities,
+        remoteProducerId : producer.id,
+        serverside_ConsumerTransportId : producerTransport.id,
+        producer,
+      }, async()=>{
+        await deleteVideo(true)
+        
+        // 23.01.24 stop 함수 이용시 readState 가 ended로 업데이트 되고, 이후 refresh가 되지 않음
+        // enabled를 false true 로 작업하면 이런 문제를 방지할 수 있던데, 더 최적화를 해야할 필요가 있음
+        producer.enabled = false
+        producerTransport.enabled = false
+        Streaming.getVideoTracks()[0].enabled = false
+      })
+    }
+  }catch(error){
+    console.log(error)
+  }
+}
+
+const createVideo = async(isProducer = false, ProducerId) =>{
+  if(isProducer === false)
+  {
+    try{
+      const newElem = document.createElement('div')
+      newElem.setAttribute('id', `td-${ProducerId}`)
+      newElem.setAttribute('class','remoteVideo')
+      newElem.innerHTML = `<video id="${ProducerId}" autoplay class = "video"></video>`
+      videoContainer.appendChild(newElem);
+    }catch(error){
+      console.log("cannot make other usres video")
+      throw error
+    }
+  }
+
+  if(isProducer === true)
+  {
+    // 검은색 칸이 보기 싫다면 업데이트 하기
+
+  }
+
+}
+
+const deleteVideo = async(isProducer = false, remoteProducerId) =>{
+  try{
+    if(isProducer ===false) // remoteProducer가 streaming종료
+    {
+      const producerToClose = consumerTransports.find(transportData => transportData.producerId === remoteProducerId)
+      producerToClose.consumerTransport.close()
+      producerToClose.consumer.close()
+      consumerTransports = consumerTransports.filter(transportData => transportData.producerId !== remoteProducerId)
+      videoContainer.removeChild(document.getElementById(`td-${remoteProducerId}`))
+    }
+
+    if(isProducer ===true)
+    {
+      consumerTransports.forEach(transportData =>  deleteVideo(false, transportData.producerId))
+    }
+    //==============================
+    isStreaming = false
+  }catch(error){
+    console.log(error)
+    throw error
+  }
+}
+
+
+
+btnLocalVideo.addEventListener('click', getLocalStream)
+btnFinishStream.addEventListener('click', finishStream)
 },{"mediasoup-client":71,"socket.io-client":87}]},{},[99]);
