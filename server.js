@@ -128,7 +128,7 @@ connections.on('connection', async socket=>{ // socket => client
     
         return items
     }
-    console.log(socket.id)
+    console.log('socketID : ', socket.id)
     socket.emit('connection-success', {
         socketId: socket.id,
     })
@@ -151,18 +151,23 @@ connections.on('connection', async socket=>{ // socket => client
         // send to client
         callback({rtpCapabilities})
     })
+
     socket.on('disconnect', ()=>{
         //do some cleanup
         console.log('peer disconnected')
         consumers = removeItems(consumers, socket.id, 'consumer')
         producers = removeItems(producers, socket.id, 'producer')
         transports = removeItems(transports, socket.id, 'transport')
-        const {roomName} = peers[socket.id]
-        delete peers[socket.id]
-        // remove socket from room
-        rooms[roomName] = {
-        router: rooms[roomName].router,
-        peers: rooms[roomName].peers.filter(socketId => socketId !== socket.id)
+        // 임시방편으로 해두긴 했는데 잘 작동할지 모르겠다. 
+        // (Finish 버튼을 누를 때 마지막 producer가 나가면 error 가 발생하는 것 예방용)
+        if(peers[socket.id]){
+            const {roomName} = peers[socket.id]
+            delete peers[socket.id]
+            // remove socket from room
+            rooms[roomName] = {
+            router: rooms[roomName].router,
+            peers: rooms[roomName].peers.filter(socketId => socketId !== socket.id)
+            }
         }
     })
 
@@ -220,7 +225,7 @@ connections.on('connection', async socket=>{ // socket => client
     const getTransport = (socketId) => {
         // check transport's scoket ID's same as passed in
         // this socketID is not consumered yet
-        const [producerTransport] = transports.filter(transport => transport.socketId === socketId && !transport.consumer)
+        const [producerTransport] = transports.filter(transport => (transport.socketId === socketId) && !transport.consumer)
         return producerTransport.transport
     }
 
@@ -284,9 +289,11 @@ connections.on('connection', async socket=>{ // socket => client
         try{
             const {roomName} = peers[socket.id]
             const router = rooms[roomName].router
+            console.log(transports.find(transportData=> transportData.transport.id).transport.id)
             let consumerTransport = transports.find(transportData => (
-                transportData.consumer && (transportData.transport.id == serverside_ConsumerTransportId)
+                transportData.consumer && (transportData.transport.id === serverside_ConsumerTransportId)
             )).transport
+
             if(router.canConsume({
                 producerId : remoteProducerId,
                 rtpCapabilities,
@@ -296,11 +303,9 @@ connections.on('connection', async socket=>{ // socket => client
                     rtpCapabilities,
                     paused : true,  //have to resume this play back
                 })
-
                 consumer.on('transportclose',()=>{
                     console.log('transport close from consumer')
                 })
-    
                 consumer.on('producerclose',()=>{
                     console.log('transport close from producer')
                     socket.emit('producer-closed', {remoteProducerId})
@@ -329,12 +334,61 @@ connections.on('connection', async socket=>{ // socket => client
             })
         }
     })
-
     socket.on('consumer-resume', async({serverside_ConsumerId})=>{
         console.log('consumer resume')
         const { consumer } = consumers.find(consumerData => consumerData.consumer.id === serverside_ConsumerId)
         await consumer.resume()
     })
+
+    socket.on('exitRoom', async({rtpCapabilities, remoteProducerId, serverside_ConsumerTransportId, prducr}, callback) =>{
+        console.log(remoteProducerId)
+        console.log(serverside_ConsumerTransportId)
+        try{
+            const {roomName} = peers[socket.id]
+            const router = rooms[roomName].router
+            
+            const producer = producers.find(producerData => (producerData.producer && (producerData.producer.id === remoteProducerId))).producer
+            let producerTransport = getTransport(socket.id)
+            console.log("프듀",producer)
+            console.log("트렌스",producerTransport)
+            
+            if(router.canConsume({
+                producerId : remoteProducerId,
+                rtpCapabilities,
+            })){
+                producer.close([])
+                producerTransport.close([])
+                producer.on('transportclose', ()=>{
+                    console.log('producer exit')
+                    producer.close([])
+                })
+                console.log("성공!3")
+                // console.log('peer disconnected')
+
+                // 접속한producer데이터 삭제
+                consumers = removeItems(consumers, socket.id, 'consumer')
+                producers = removeItems(producers, socket.id, 'producer')
+                transports = removeItems(transports, socket.id, 'transport')
+                if(peers[socket.id]){
+                    const {roomName} = peers[socket.id]
+                    delete peers[socket.id]
+                    // remove socket from room
+                    rooms[roomName] = {
+                    router: rooms[roomName].router,
+                    peers: rooms[roomName].peers.filter(socketId => socketId !== socket.id)
+                    }
+                }
+                callback()
+            }
+            
+        }catch(error){
+            // console.log(`${remoteProducerId} are not streaming yet, but clicked btn`)
+            console.log(error)
+        }
+        // console.log("remoteProducerId : ", exitingProducer.remoteProducerId);
+        // console.log("remoteProducerTransportId : ", exitingProducer.remoteProducerTransportId);
+    })
+
 ////===================== this is for 1-1 connection =====================
 //  // we will use room at next step
 //     socket.on('createRoom', async(callback)=>{ // we get event for creating room
