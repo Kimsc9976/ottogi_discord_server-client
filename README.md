@@ -71,7 +71,7 @@
   <br>
 
   ## 6. npm start를 이용하서 실행
-  
+
 <br><br><br>
 
 ## **4.1 기능 설명**
@@ -122,9 +122,9 @@
     callback({rtpCapabilities})
   })
   ```
-    - createRoom 함수를 통해 
-      1. 방이 있을 경우 : Rooms 에 저장된 Router id를 통해 입장
-      2. 방이 없을 경우 : Rooms 에 Router id를 저장 후 방을 생성
+  - createRoom 함수를 통해 
+    1. 방이 있을 경우 : Rooms 에 저장된 Router id를 통해 입장
+    2. 방이 없을 경우 : Rooms 에 Router id를 저장 후 방을 생성
 
 
 ### 2. **전송 장치 생성**
