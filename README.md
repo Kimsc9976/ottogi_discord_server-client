@@ -69,6 +69,9 @@
   - Key 명은 입력 전, config.example.js 확인 바람 (최종적으로 사용해야할 key의 명칭도 있음)
   - 생성한 Key는 ./server/certs/에 저장
   <br>
+
+  ## 6. npm start를 이용하서 실행
+  
 <br><br><br>
 
 ## **4.1 기능 설명**
@@ -88,23 +91,118 @@
 
 <br> 
 
-### 1. **방 입장**
-```   
-socket.on('joinRoom', async({roomName}, callback) => 
-{
-  // create router if room is note exist
-  const router1 = await createRoom(roomName, socket.id)
-  peers[socket.id] = {
-    ....
+
+  ### 1. **방 입장**
+
+
+  ### client
+
+  ```
+  const joinRoom = () =>{ // to make router or go to router
+    socket.emit('joinRoom', {roomName}, (data) => {
+      ...
+      createDevice()
+    })
   }
-  // get Router RTP capabilities
-  const rtpCapabilities = router1.rtpCapabilities
-  callback({rtpCapabilities})
-})
+  ```
+
+   - joinRoom을 emit 이후 CreateDevice() 진행
+  ### server 
+
+
+  ```   
+  socket.on('joinRoom', async({roomName}, callback) => 
+  {
+    // create router if room is note exist
+    ... 방 생성
+
+    }
+    // get Router RTP capabilities
+    const rtpCapabilities = router1.rtpCapabilities
+    callback({rtpCapabilities})
+  })
+  ```
+    - createRoom 함수를 통해 
+      1. 방이 있을 경우 : Rooms 에 저장된 Router id를 통해 입장
+      2. 방이 없을 경우 : Rooms 에 Router id를 저장 후 방을 생성
+
+
+### 2. **전송 장치 생성**
+
+### client
 ```
-  - createRoom 함수를 통해 
-    1. 방이 있을 경우 : Rooms 에 저장된 Router id를 통해 입장
-    2. 방이 없을 경우 : Rooms 에 Router id를 저장 후 방을 생성
+const createDevice = async () =>{
+  try{
+    ...
+    createSendTransport() // everyone is producer & consumer
+  }catch (error)
+  {...}
+}
+
+const createSendTransport = async ()=>{
+  // 1. 'createWebRTCTransport' server로 전송
+  await socket.emit('createWebRTCTransport',{consumer : false}, ({params})=>{
+    
+    ... Producing할 device 생성
+
+  // 2. 'connect' mediasoup 의 transports에 connect 신호를 받고,
+  //    'transport-connect'를 server로 전송
+        await socket.emit('transport-connect',{...})
+
+    )
+
+    producerTransport.on('produce', async(parameters, callback, errback) =>{
+      try{
+
+        // Room에 Producer가 있으면, router를 생성할 필요가 없기 떄문에 
+        // Producer가 있는지 물어봄
+        await socket.emit('transport-produce',{},  
+
+        ({id, producerExist}) => {
+          // callback을 통해 Room 내부의 producers의 정보를 받아옴
+          callback({id, producerExist})
+          if(producerExist){
+            getProducers() // -> consumer 정보를 받기 위해 getProducers진행
+          }
+
+        })}catch(error){...}})
+
+    connectSendTransport() // -> streaming 정보 connect 시키기
+  })
+}
+```
+### server
+```
+socket.on('createWebRTCTransport',async({consumer}, callback)=>{
+    // have to get room name from peer's properties
+
+    ... 연결된 router의 정보 받아옴
+
+    createWebRTCTransport(router).then(
+            ...
+            addTransport(transport, roomName, consumer) // server의 transports 정보 저장
+        },
+        error => {
+            console.log(error.message)
+        }
+    )
+})
+
+
+socket.on('transport-produce',async({kind, rtpParameters, appData}, callback) =>{
+
+    ... producer생성 및 roomName 정보 받아옴
+
+    addProducer(producer, roomName) // server의 Producing하는 streaming 정보를 
+    informConsumer(roomName, socket.id, producer.id) // 각각의 producer에게 new-producer 정보를 전송
+
+    producer.on('transportclose', ()=>{...})
+    callback({
+      Producer 정보와 Room 에 producer 유무를 callback
+    })
+})
+
+```
 
 <br>
 
@@ -124,6 +222,11 @@ socket.on('joinRoom', async({roomName}, callback) =>
 5. Room의 개수 및 Peers의 상태 저장
 <br><br>
 
+## 추가 구현 사항 : 
+<br>1. workers를 늘려야 서버에 대한 부하가 줄어든다. - 이에 대한 정보를 좀 찾아보자
+<br>2. mediasoup handler를 이용하여 다른 부라우저간의 연결성도 확보해두자
+<br>3. 에러사항 7.과 관련이 있는데, enable로 처리를 하면 계속 녹화가 진행된다.. close후 refresh 하는 방법을 알아봐야함.
+
 <br>
 
 ## **5.2 에러 사항**
@@ -131,7 +234,7 @@ socket.on('joinRoom', async({roomName}, callback) =>
 1. ~~Ctrl + C, Ctrl + V 로 방에 입장 시 error 발생~~ <br>23.01.24 update - 버튼이 구현되면서 에러가 발생하지 않게됨<br>->(새로고침 및 ctrl +c, v 하면서 media정보 전송에 문제가 있었는듯)
 2. ~~현재 영상이 모든 방 포함 최대 2개까지만 공유됨~~ 23.01.23 update 
 3. ~~퇴장시 영상정보 삭제가 안됨~~ 23.01.22 update 
-4. 에러 이후 server복구가 안 됨 <br> -> 에러 발생사항 제작 중
+4. 에러 이후 server복구가 안 됨 <br> -> 에러 발생사항 확인 중
 5. Edge로 들어가면 접근이 안 됨 -> 핸들러와 관련이 있음<br>(다른 브라우저들은 조사해봐야함)
 <img src = "./docs/data/img/mediasoupHandler.jpg" weidth = "40%">
     - API는 [mediasoup - client](https://mediasoup.org/documentation/v3/mediasoup-client/api/) 참조 바람
