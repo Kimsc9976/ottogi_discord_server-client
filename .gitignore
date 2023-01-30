@@ -12,3 +12,6 @@ greenlock.d/
 
 *-backup.html
 *-backup.js
+
+server/certs/*
+!server/certs/README.md
