@@ -222,10 +222,11 @@ socket.on('transport-produce',async({kind, rtpParameters, appData}, callback) =>
 5. Room의 개수 및 Peers의 상태 저장
 <br><br>
 
-## 추가 구현 사항 : 
+## 추가 필요: 
 <br>1. workers를 늘려야 서버에 대한 부하가 줄어든다. - 이에 대한 정보를 좀 찾아보자
 <br>2. mediasoup handler를 이용하여 다른 부라우저간의 연결성도 확보해두자
-<br>3. 에러사항 7.과 관련이 있는데, enable로 처리를 하면 계속 녹화가 진행된다.. close후 refresh 하는 방법을 알아봐야함.
+<br>3. 화면공유 및 음성에 대한 정보도 전송을 할 수 있어야한다.
+<br>4. txtConnection을 이용하여 로딩중 화면을 보여줄 수 있도록 작업
 
 <br>
 
