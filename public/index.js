@@ -154,7 +154,6 @@ const createSendTransport = async ()=>{
           // give producer's id for serverside
           callback({id, producerExist})
           if(producerExist){
-            console.log("아이디만 받아왔지?",id)
             getProducers()
           }
         })
@@ -169,9 +168,9 @@ const createSendTransport = async ()=>{
 
 // for connect [Send transport & produce]
 const connectSendTransport = async()=>{
-  // Warning! [readystate가 왜 업데이트가 안되는지 파악이 안됨.... (Refresh가 되지 않음)] 23.01.24 -> readonly라 직접변경은 안됨
+
   audioProducer = await producerTransport.produce(audioParams) // this event will triggered when producer Transport start
-  console.log("오디오 아이디 확인",audioProducer.id)
+  console.log(`audio - ${audioProducer.id} confirmed`)
   audioProducer.on('trackened', ()=>{
     console.log('track ended')
     //close audio tarck
@@ -182,7 +181,7 @@ const connectSendTransport = async()=>{
   })
 
   videoProducer = await producerTransport.produce(videoParams) // this event will triggered when producer Transport start
-  console.log("비디오 아이디 확인",videoProducer.id)
+  console.log(`video - ${videoProducer.id} confirmed`)
   videoProducer.on('trackened', ()=>{
     console.log('track ended')
     //close video tarck
@@ -193,9 +192,9 @@ const connectSendTransport = async()=>{
   })
 }
 
-// 23.01.31 - kind를 넘겨받아야 복제 되는 경우 방지가능할듯...
+// 23.01.29 - kind를 넘겨받아야 복제 되는 경우 방지가능할듯... -> 23.01.31 consumingTransport를 이용하여 해결 
 // server have to inform the client of a new producer just joined // and ready for consume
-socket.on('new-producer',({producerId, producerKind}) => signalNewConsumerTransport(producerId, producerKind))
+socket.on('new-producer',({producerId}) => signalNewConsumerTransport(producerId))
 const getProducers = () => {
   socket.emit('getProducers', (producerIds) =>{
     console.log("producer Ids", producerIds)
@@ -213,10 +212,10 @@ const getProducers = () => {
 //============================================================================================
 const signalNewConsumerTransport = async (remoteProducerId)=>{
   //check if we are already consuming the remoteProducerId
+  if (consumingTransports.includes(remoteProducerId)) {
+    return;}
+  consumingTransports.push(remoteProducerId);
 
-  // if (consumingTransports.includes(remoteProducerId)) return;
-  // consumingTransports.push(remoteProducerId);
-  console.log("검문해보겠습니다.",remoteProducerId)
   await socket.emit('createWebRTCTransport',{consumer : true}, ({params})=>{
     if (params.error){
       console.log(params.error)
@@ -229,8 +228,8 @@ const signalNewConsumerTransport = async (remoteProducerId)=>{
       consumerTransport = device.createRecvTransport(params)
     } catch (error) {
       // exceptions: 
-      // {InvalidStateError} if not loaded
-      // {TypeError} if wrong arguments.
+      // InvalidStateError - if not loaded
+      // TypeError - if wrong arguments.
       console.log(error)
       return
     }
@@ -249,20 +248,22 @@ const signalNewConsumerTransport = async (remoteProducerId)=>{
         errback(error)
       }
     })
-    connectRecvTransport(consumerTransport, remoteProducerId, params.id)
+    
+    connectRecvTransport(consumerTransport, remoteProducerId, params.id, params.kind)
     // [ params.id ] is "server side" consumer transpor id
     // this is transported by server 'createWebRTCTransport' 
   })
 }
 
 /// 이부분에서 video audio가 복제되서 넘어옴
-const connectRecvTransport = async(consumerTransport, remoteProducerId, serverside_ConsumerTransportId)=>{
+const connectRecvTransport = async(consumerTransport, remoteProducerId, serverside_ConsumerTransportId, serverside_ConsumerKind)=>{
   await socket.emit('consume',{
     rtpCapabilities : device.rtpCapabilities,
     remoteProducerId,
     serverside_ConsumerTransportId,
+    serverside_ConsumerKind,
   },
-  
+
   async({params}) =>{
     if (params.error){
       console.log('Cannot consume')
@@ -286,8 +287,6 @@ const connectRecvTransport = async(consumerTransport, remoteProducerId, serversi
         consumer,
       }
     ]
-
-    console.log("리모트 프로두셔",remoteProducerId)
 //============ Create Video
     createTrack(false, remoteProducerId, params.kind)
 //========================================
@@ -313,6 +312,7 @@ socket.on('producer-closed', async({remoteProducerId})=>{
   //we need to close the client-side consumer and associated transport
 //========= 상대방 종료시 데이터 삭제
   await deleteVideo(false, remoteProducerId)
+  consumingTransports.pop(remoteProducerId)
 //==============================
 })
 
@@ -348,12 +348,13 @@ const finishStream = async () =>{ // ProducerId : 내 아이디 , remoteProducer
         console.log('transport ended')
         //close video tarck
       })
+
       //23.01.29 Params의 Track이 업데이트가 제대로 안되었기 때문에 pamras undefine 진행
       //이랬더니 track 정보 및 params 정보가 일체로 업데이트가 진행되면서 정상적으로 동작했다.
-      
       videoParams = undefined
       audioParams = undefined
       isStreaming = false
+      consumingTransports = [] // Producing이 끝나 consuming을 하지 않음
     })
   }
 }
