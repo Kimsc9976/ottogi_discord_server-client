@@ -2,10 +2,9 @@ const fs = require('fs');
 const express = require('express');
 const app = express();
 const https = require('httpolyglot');
-const Server = require('socket.io')  // server side
-const mediasoup = require('mediasoup')
 const config = require('./config');
 const socket = require('socket.io-client/lib/socket');
+const crud = require('./src/crud')
 //=====================================================================================================
 const options = {
     key : fs.readFileSync(config.key,'utf-8'), // have to get real ssl later
@@ -17,22 +16,34 @@ httpsServer.listen(3000,()=>{
     console.log("server connected ")
 })
 
+
+const bodyParser = require('body-parser');
+app.use(bodyParser.urlencoded({extended : false}));
+
 app.get('*',(req, res, next)=>{
-    
     // you should provide path by your roomname
     const path = '/sfu/'
     if (req.path.indexOf(path)==0 && req.path.length > path.length) return next()
     res.send(`You need to specify a room name in the path e.q. 'https://127.0.0.1/sfu/room'`);
 })
 app.use(express.static('./src'));
-app.use('/sfu/:room', express.static(__dirname + "/public"));
+app.use('/sfu/:room', express.static(__dirname + '/public'));
+
+// app.get('/sfu/:room',(req,res) =>{
+//     console.log("안녕")
+//     res.send(`태초마을이야!`);
+// })
 
 //=====================================================================================================
 //=====================================================================================================
+const mediasoup = require('mediasoup')
+const Server = require('socket.io')  // server side
+const io = new Server(httpsServer)
+const connections = io.of('/mediasoup') //peer is for multiful connection so i changed name to conection
 
 let worker
 let rooms = {}          // { roomName1: { Router, peers: [ socketId1, ... ] }, ...}
-let peers = {}          // { socketId1: { roomName1, socket, transports = [id1, id2,] }, producers = [id1, id2,] }, consumers = [id1, id2,], peerDetails }, ...}
+let peers = {}          // { socketId1: { roomName1, socket, transports = [id1, id2,], producers = [id1, id2,] , consumers = [id1, id2,], peerDetails }, ...}
 let transports = []     // [ { socketId1, roomName1, transport, consumer }, ... ]
 let producers = []      // [ { socketId1, roomName1, producer, }, ... ]
 let consumers = []      // [ { socketId1, roomName1, consumer, }, ... ]
@@ -64,14 +75,13 @@ const createWebRTCTransport = async(router)=>{
             resolve(transport)
         }
         catch(error){
+            console.log(error)
             reject(error)
         }
     })
 }
 
 worker = createWorker()
-const io = new Server(httpsServer)
-const connections = io.of('/mediasoup') //peer is for multiful connection so i changed name to conection
 
 connections.on('connection', async socket=>{ // socket => client
     const addTransport = (transport, roomName, consumer) =>{
@@ -117,14 +127,23 @@ connections.on('connection', async socket=>{ // socket => client
             ]
         }
     }
-    const removeItems = (items, socketId, type) =>{
-        items.forEach(item => {
-            if (item.socketId === socketId) {
-            item[type].close()
-            }
-        })
-        items = items.filter(item => item.socketId !== socket.id)
-    
+    const removeItems = (items, socketId, type, kind) =>{
+        if(kind){
+            items.forEach(item => {
+                if ((item.socketId === socketId) && (item.producer.kind === kind)) {
+                item[type].close()
+                }
+            })
+            items = items.filter(item => ((item.producer.kind !== kind) || (item.socketId !== socket.id)))
+        }
+        else{
+            items.forEach(item => {
+                if (item.socketId === socketId) {
+                item[type].close()
+                }
+            })
+            items = items.filter(item => item.socketId !== socket.id)
+        }
         return items
     }
     console.log('socketID : ', socket.id)
@@ -142,6 +161,7 @@ connections.on('connection', async socket=>{ // socket => client
             consumers : [],
             peerDetails : {
                 name : '',
+                data : '',
                 isAdmin : false, // Not update NOw
             }
         }
@@ -190,12 +210,13 @@ connections.on('connection', async socket=>{ // socket => client
                 router: router1,
                 peers : [...peers, socketId]
             }
+            console.log(rooms[roomName])
                 return router1
         }
 
     socket.on('createWebRTCTransport',async({consumer}, callback)=>{
         // have to get room name from peer's properties
-        const {roomName} = peers[socket.id] // 첫 producer를 통해 peers를 타고타고 roomName을 가져오는 방식인거 같다.
+        const {roomName} = peers[socket.id] // 첫 producer를 통해 peers를 타고타고 roomName을 가져오는 방식
         const router = rooms[roomName].router
         createWebRTCTransport(router).then(
             transport => {
@@ -217,9 +238,9 @@ connections.on('connection', async socket=>{ // socket => client
     })
 
     //about producers
-    socket.on('transport-connect', ({ dtlsParameters}) =>{
+    socket.on('transport-connect', async ({ dtlsParameters}) =>{
         console.log('DTLS PARAMS...', {dtlsParameters})
-        getTransport(socket.id).connect({dtlsParameters})
+        await getTransport(socket.id).connect({dtlsParameters})
     })
     const getTransport = (socketId) => {
         // check transport's scoket ID's same as passed in
@@ -270,32 +291,10 @@ connections.on('connection', async socket=>{ // socket => client
             if ((producerData.socketId !== socket.id) && (producerData.roomName === roomName)) {
             producerList = [...producerList, producerData.producer.id]
             }
-            console.log("producer를 받아왔습니다.",producerData.producer.id, producerData.producer.kind)
         })
         // return the producer list back to the client
         callback(producerList)
     })
-
-    // socket.on('getProducers', callback => {
-    //     //return all producer transports
-    //     const { roomName } = peers[socket.id]
-    //     let producerList = []
-    //     producers.forEach(producerData => {
-    //         if ((producerData.socketId !== socket.id) && (producerData.roomName === roomName)) {
-                
-    //             producerList.forEach(informs =>{
-    //                 if (!informs.include(producerData.producer.id)){
-    //                     console.log('hello')
-    //                     producerList = 
-    //                     [...producerList, 
-    //                         [producerData.producer.id, producerData.producer.kind]];
-    //                 }
-    //             })
-    //         }
-    //     })
-    //     // return the producer list back to the client
-    //     callback(producerList)
-    // })
 
     //about recevers
     socket.on('transport-recv-connect', async({dtlsParameters, serverside_ConsumerTransportId})=> {
@@ -306,11 +305,10 @@ connections.on('connection', async socket=>{ // socket => client
         await consumerTransport.connect({dtlsParameters})
     })
 
-    socket.on('consume', async({rtpCapabilities, remoteProducerId, serverside_ConsumerTransportId, serverside_ConsumerKind}, callback) =>{
+    socket.on('consume', async({rtpCapabilities, remoteProducerId, serverside_ConsumerTransportId}, callback) =>{
         try{
             const {roomName} = peers[socket.id]
             const router = rooms[roomName].router
-            console.log(transports.find(transportData=> transportData.transport.id).transport.id)
             let consumerTransport = transports.find(transportData => (
                 transportData.consumer && (transportData.transport.id === serverside_ConsumerTransportId)
             )).transport
@@ -323,7 +321,6 @@ connections.on('connection', async socket=>{ // socket => client
                     rtpCapabilities,
                     paused : true,  //have to resume this play back
                 })
-                console.log("ABOUT kind : ", consumer.kind,"와",serverside_ConsumerKind)
                 
                 consumer.on('transportclose',()=>{
                     console.log('transport close from consumer')
@@ -357,32 +354,34 @@ connections.on('connection', async socket=>{ // socket => client
         }
     })
     socket.on('consumer-resume', async({serverside_ConsumerId})=>{
-        console.log('consumer resume')
+        console.log(`consumer ${serverside_ConsumerId} is resumed`)
         const { consumer } = consumers.find(consumerData => consumerData.consumer.id === serverside_ConsumerId)
         await consumer.resume()
+        console.log("after : ",consumer.getStats())
     })
 
     socket.on('exitRoom', async({rtpCapabilities, remoteProducerId, serverside_ConsumerTransportId}, callback) =>{
-        console.log(serverside_ConsumerTransportId)
+        producers.forEach(producerData => console.log("아이디",producerData.producer.id, "종류", producerData.producer.kind))
         try{
             const {roomName} = peers[socket.id]
             const router = rooms[roomName].router
-            
-            const producer = producers.find(producerData => (producerData.producer && (producerData.producer.id === remoteProducerId))).producer
             let producerTransport = getTransport(socket.id)
-            console.log("1,",producer)
             if(router.canConsume({
                 producerId : remoteProducerId,
                 rtpCapabilities,
             })){
-                producer.close([])
                 producerTransport.close([])
-                producer.on('transportclose', ()=>{
-                    console.log('producer exit')
-                    producer.close([])
-                })
-                console.log('peer disconnected')
-
+                if (!producers.find(producerData => (producerData.producer && (producerData.producer.id === remoteProducerId)))){
+                    console.log("I can't find anything")
+                }
+                {
+                    const producer = producers.find(producerData => (producerData.producer && (producerData.producer.id === remoteProducerId))).producer
+                    producer.on('transportclose', ()=>{
+                        console.log('producer exit')
+                        producer.close([])
+                    })
+                    console.log('peer disconnected')
+                }
                 // 접속한producer데이터 삭제
                 consumers = removeItems(consumers, socket.id, 'consumer')
                 producers = removeItems(producers, socket.id, 'producer')
@@ -398,9 +397,40 @@ connections.on('connection', async socket=>{ // socket => client
                 }
                 callback()
             }
+            else{
+                console.log(error)
+                console.log("이런거 주면 어떻게 받아먹냐;")
+            }
             
         }catch(error){
-            console.log(`${remoteProducerId} are not streaming yet, but clicked btn`)
+            console.log(`${remoteProducerId} are not streaming `)
+            console.log(error)
+        }
+    })
+
+    socket.on('produceClose', async({rtpCapabilities, remoteProducerId, serverside_ConsumerTransportId}, callback) =>{
+        try{
+            producers.forEach(producerData => console.log("아이디",producerData.producer.id, "종류", producerData.producer.kind))
+            const {roomName} = peers[socket.id]
+            const router = rooms[roomName].router
+            const producer = producers.find(producerData => (producerData.producer && (producerData.producer.id === remoteProducerId))).producer
+            if(router.canConsume({
+                producerId : remoteProducerId,
+                rtpCapabilities,
+            })){
+                producer.close()
+                console.log('producer closed', producer.kind)
+                // 접속한producer데이터 삭제
+                producers = removeItems(producers, socket.id, 'producer', producer.kind)
+                if(peers[socket.id]){
+                    peers[socket.id].producers.filter(producerId => producerId !== remoteProducerId)
+                    // remove socket from room
+                }
+                callback()
+            }
+            
+        }catch(error){
+            console.log(`${remoteProducerId} producer not confirmed, but clicked btn`)
             console.log(error)
         }
     })

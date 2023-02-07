@@ -1,7 +1,7 @@
 const io = require('socket.io-client') // client-side
 const mediasoupClient = require('mediasoup-client')
 const socket = io('/mediasoup')
-const cnt = require('../src/connect')
+const cnt = require('./src/connect')
 const config = require('../config')
 
 
@@ -331,8 +331,12 @@ socket.on('producer-closed', async({remoteProducerId})=>{
 //==============================
 })
 
-// 23.02.03 종료될 때, consumer가 제대로 제거되지 않는 현상이 발생하는데, 이 문제 해결바람.
-// --> 다시 켤 때 연쇄적으로 에러가 발생한ㄷ. 
+
+
+
+
+
+
 const finishStream = async () =>{ // ProducerId : 내 아이디 , remoteProducerIds : Consumers의 정보들 
   /// 정보 지워버리기.
   // can find with consumerTransports
