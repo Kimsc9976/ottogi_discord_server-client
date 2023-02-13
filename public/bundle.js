@@ -21535,12 +21535,14 @@ const cnt = require('../src/connect')
 const config = require('../config')
 
 
+const params = require('./mediasoupParams');
 
 // TCP/IP 통신은 일반적으로 sokect통신 이라고 부른다. 
 
 socket.on('connection-success', ({socketId, existProducer}) => {
   console.log('--', socketId, 'Enters the room.', existProducer);
   config.sockets = [...config.sockets, socketId]
+  getLocalStream()
 })
 
 
@@ -21560,119 +21562,74 @@ let videoProducer;
 let screenProducer; // 아직 업데이트 안됨
 let consumerTransports = [];
 
-const params = require('./mediasoupParams');
 let audioParams;
 let videoParams = { params };
 let consumingTransports = [];
 
 
+const streamSuccess = (stream) => {
+  localVideo.srcObject = stream
 
-// streaming start
-const getLocalStream = () =>{
-  if(isStreaming  === true){
-    console.log("already streaming")
-    return
-  }
-  navigator.mediaDevices.getUserMedia({
-    audio : true,
-  }).then(streamSuccess)
-  .catch(error=>{
-    console.log(error.message)
-  })
-}
-
-const streamSuccess = (stream)=>{
-  isStreaming = true
-  localVideo.srcObject = stream;
-  Streaming = stream
-  btnFinishStream.disabled = false
-  btnLocalVideo.disabled = false
-  btnLocalStream.disabled = true
-  // btnLocalScrean.disabled = false
-
-  audioParams= { track: stream.getAudioTracks()[0], ...audioParams };
-  console.log("audioParams",audioParams)
-
-  joinRoom() 
-}
-
-const getLocalVideo = () =>{
-  if (isVideoON === false){
-    navigator.mediaDevices.getUserMedia({
-      video : {
-        width : {
-          min : 640,
-          max : 1920
-        },
-        height : {
-          min : 400,
-          max : 1080
-        }
-      }
-    }).then(addvideo)
-    .catch(error=>{
-      console.log(error.message)
-    })
-  }
-  if(isVideoON === true){
-    const videoTracks = Streaming.getVideoTracks();
-    Streaming.removeTrack(videoTracks[0])
-    
-    videoProducer.close()
-    localVideo.srcObject = null;
-    videoParams = undefined
-    isVideoON = false
-    // Streaming.getVideoTracks().forEach(track => track.stop());
-    closeProducer(videoProducer)
-  }
-}
-
-const addvideo = (stream) =>{
-  isVideoON = true
-  const videoTracks = stream.getVideoTracks();
-  Streaming.addTrack(videoTracks[0])
-  localVideo.srcObject = null;
-  localVideo.srcObject = Streaming;
-  
+  audioParams = { track: stream.getAudioTracks()[0], ...audioParams };
   videoParams = { track: stream.getVideoTracks()[0], ...videoParams };
-  console.log("videoParams",videoParams)
-  try{
-    connectSendTransport()
-  }catch (error)
-  {
-    console.log(error)
-    if (error.name === 'UnsupportedError')
-      {console.warn('browser not supported')}
-  }
-  
+
+  joinRoom()
 }
 
-const joinRoom = () =>{ // to make router or go to router
-  socket.emit('joinRoom', {roomName}, (data) => {
+const joinRoom = () => {
+  socket.emit('joinRoom', { roomName }, (data) => {
     console.log(`Router RTP Capabilities... ${data.rtpCapabilities}`)
-    //we assign to local variable and will be used
-    // console.log('data', data)
+    // we assign to local variable and will be used when
+    // loading the client Device (see createDevice above)
     rtpCapabilities = data.rtpCapabilities
-    // once we have rtp capability, create device
+
+    // once we have rtpCapabilities from the Router, create Device
     createDevice()
   })
 }
 
-// make device when we join the room
-const createDevice = async () =>{
-  try{
+const getLocalStream = () => {
+  navigator.mediaDevices.getUserMedia({
+    audio: true,
+    video: {
+      width: {
+        min: 640,
+        max: 1920,
+      },
+      height: {
+        min: 400,
+        max: 1080,
+      }
+    }
+  })
+  .then(streamSuccess)
+  .catch(error => {
+    console.log(error.message)
+  })
+}
+
+// A device is an endpoint connecting to a Router on the
+// server side to send/recive media
+const createDevice = async () => {
+  try {
     device = new mediasoupClient.Device()
+
+    // https://mediasoup.org/documentation/v3/mediasoup-client/api/#device-load
+    // Loads the device with RTP capabilities of the Router (server side)
     await device.load({
-      routerRtpCapabilities : rtpCapabilities
+      // see getRtpCapabilities() below
+      routerRtpCapabilities: rtpCapabilities
     })
-    console.log('Device RTP Capabilities', rtpCapabilities)
-    //once the device load, create transport
-    createSendTransport() // this cuz for everyone is producer & consumer
-  }catch (error)
-  {
+
+    console.log('Device RTP Capabilities', device.rtpCapabilities)
+
+    // once the device loads, create transport
+    createSendTransport()
+
+  } catch (error) {
     console.log(error)
     if (error.name === 'UnsupportedError')
-      {console.warn('browser not supported')}
+      console.warn('browser not supported')
   }
 }
 
@@ -21743,7 +21700,56 @@ const connectSendTransport = async()=>{
   }
 }
 
-// server have to inform the client of a new producer just joined // and ready for consume
+
+
+
+const signalNewConsumerTransport = async (remoteProducerId) => {
+  //check if we are already consuming the remoteProducerId
+  if (consumingTransports.includes(remoteProducerId)) return;
+  consumingTransports.push(remoteProducerId);
+  console.log("왔음까")
+  await socket.emit('createWebRTCTransport', { consumer: true }, ({ params }) => {
+    // The server sends back params needed 
+    // to create Send Transport on the client side
+    if (params.error) {
+      console.log(params.error)
+      return
+    }
+    console.log(`PARAMS... ${params}`)
+
+    let consumerTransport
+    try {
+      consumerTransport = device.createRecvTransport(params)
+    } catch (error) {
+      // exceptions: 
+      // {InvalidStateError} if not loaded
+      // {TypeError} if wrong arguments.
+      console.log(error)
+      return
+    }
+
+    consumerTransport.on('connect', async ({ dtlsParameters }, callback, errback) => {
+      try {
+        // Signal local DTLS parameters to the server side transport
+        // see server's socket.on('transport-recv-connect', ...)
+        await socket.emit('transport-recv-connect', {
+          dtlsParameters,
+          serverside_ConsumerTransportId: params.id,
+        })
+
+        // Tell the transport that parameters were transmitted.
+        callback()
+      } catch (error) {
+        // Tell the transport that something was wrong
+        errback(error)
+      }
+    })
+
+    connectRecvTransport(consumerTransport, remoteProducerId, params.id)
+  })
+}
+
+// server informs the client of a new producer just joined
 socket.on('new-producer',({producerId}) => signalNewConsumerTransport(producerId))
 const getProducers = () => {
   socket.emit('getProducers', (producerIds) =>{
@@ -21752,58 +21758,6 @@ const getProducers = () => {
     // producerIds.forEach(signalNewConsumerTransport)
   })
 }
-//============================================================================================
-//============================================================================================
-//============================================================================================
-
-
-//============================================================================================
-//======================== For create Receiver Transport =====================================
-//============================================================================================
-const signalNewConsumerTransport = async (remoteProducerId)=>{
-  //check if we are already consuming the remoteProducerId
-  if (consumingTransports.includes(remoteProducerId)) {return;}
-  consumingTransports.push(remoteProducerId);
-
-  await socket.emit('createWebRTCTransport',{consumer : true}, ({params})=>{
-    if (params.error){
-      console.log(params.error)
-      return
-    }
-
-    console.log(`PARAMS... ${params}`)
-    let consumerTransport;
-    try {
-      consumerTransport = device.createRecvTransport(params)
-    } catch (error) {
-      // exceptions: 
-      // InvalidStateError - if not loaded
-      // TypeError - if wrong arguments.
-      console.log(error)
-      return
-    }
-    
-    consumerTransport.on('connect', async({dtlsParameters}, callback, errback) =>{
-      try{
-        // signal of local DTLS parameters to the serverside transport
-          await socket.emit('transport-recv-connect',{
-            // transportId : consumerTransport.id,
-            dtlsParameters : dtlsParameters,
-            serverside_ConsumerTransportId : params.id
-          })
-          // tell the transport that parameters were transmitted
-          callback()
-      }catch(error){
-        errback(error)
-      }
-    })
-    
-    connectRecvTransport(consumerTransport, remoteProducerId, params.id)
-    // [ params.id ] is "server side" consumer transpor id
-    // this is transported by server 'createWebRTCTransport' 
-  })
-}
-
 const connectRecvTransport = async(consumerTransport, remoteProducerId, serverside_ConsumerTransportId)=>{
   
   console.log("연결을 진행합니다.")
@@ -21850,99 +21804,20 @@ const connectRecvTransport = async(consumerTransport, remoteProducerId, serversi
 //=====================================================================
   })
 }
-//============================================================================================
-//============================================================================================
-//============================================================================================
 
-socket.on('producer-closed', async({remoteProducerId})=>{
-//========= 상대방 종료시 데이터 삭제
-  await deleteVideo(false, remoteProducerId)
-  consumingTransports.pop(remoteProducerId)
-//==============================
+socket.on('producer-closed', ({ remoteProducerId }) => {
+  // server notification is received when a producer is closed
+  // we need to close the client-side consumer and associated transport
+  const producerToClose = consumerTransports.find(transportData => transportData.producerId === remoteProducerId)
+  producerToClose.consumerTransport.close()
+  producerToClose.consumer.close()
+
+  // remove the consumer transport from the list
+  consumerTransports = consumerTransports.filter(transportData => transportData.producerId !== remoteProducerId)
+
+  // remove the video div element
+  videoContainer.removeChild(document.getElementById(`td-${remoteProducerId}`))
 })
-
-// 23.02.03 종료될 때, consumer가 제대로 제거되지 않는 현상이 발생하는데, 이 문제 해결바람.
-// --> 다시 켤 때 연쇄적으로 에러가 발생한ㄷ. 
-const finishStream = async () =>{ // ProducerId : 내 아이디 , remoteProducerIds : Consumers의 정보들 
-  /// 정보 지워버리기.
-  // can find with consumerTransports
-  if(isStreaming === false){
-    console.log("already Finished")
-    return
-  }
-  btnFinishStream.disabled = true
-  btnLocalVideo.disabled = true
-  btnLocalScrean.disabled = true
-  btnLocalStream.disabled = false
-
-  closeTransport(videoProducer || audioProducer || screenProducer)
-
-  videoParams = undefined
-  audioParams = undefined
-  isStreaming = false
-  isVideoON = false
-  consumingTransports = [] // Producing이 끝나 consuming을 하지 않음
-    
-}
-
-const closeProducer = async(producer) =>{
-  console.log(producer)
-  await socket.emit('produceClose',{
-    rtpCapabilities : device.rtpCapabilities,
-    remoteProducerId : producer.id,
-    serverside_ConsumerTransportId : producerTransport.id,
-  }, async()=>{
-    // await deleteVideo(false, to_erase)
-    producer.close()
-    videoProducer = undefined
-    producer.on('trackened', ()=>{
-      console.log('track ended')
-      //close video tarck
-    })
-    producer.on('transportclose', ()=>{
-      console.log('transport ended')
-      //close video tarck
-    })
-  })
-}
-
-
-const closeTransport = async(video, audio, screen) =>{
-  try{
-    if(video || audio)
-    {
-      let producer;
-      producer = video || audio
-      console.log(producer.kind)
-      console.log("Producer ID ",producer.id)
-      await socket.emit('exitRoom',{
-        rtpCapabilities : device.rtpCapabilities,
-        remoteProducerId : producer.id, 
-        serverside_ConsumerTransportId : producerTransport.id,
-      }, async()=>{
-        await deleteVideo(true)
-        producer.close()
-        producerTransport.close()
-        Streaming.getTracks().forEach(track => track.stop());
-    
-        producer.on('trackened', ()=>{
-          console.log('track ended')
-          //close video tarck
-        })
-        producer.on('transportclose', ()=>{
-          console.log('transport ended')
-          //close video tarck
-        })
-      })
-    }
-    else{
-      console.log("Noting to close")
-      return;
-    }
-  }catch(error){
-    console.log(error.message)
-  }
-}
 
 
 const createTrack = async(isProducer = false, ProducerId,kind) =>{
@@ -21965,40 +21840,6 @@ const createTrack = async(isProducer = false, ProducerId,kind) =>{
   }
 }
 
-const deleteVideo = async(isProducer = false, remoteProducerId) =>{
-  try{
-    if(isProducer ===false) // remoteProducer가 streaming종료
-    {
-      const producerToClose = consumerTransports.find(transportData => transportData.producerId === remoteProducerId)
-      producerToClose.consumerTransport.close()
-      producerToClose.consumer.close()
-      consumerTransports = consumerTransports.filter(transportData => transportData.producerId !== remoteProducerId)
-      videoContainer.removeChild(document.getElementById(`td-${remoteProducerId}`))
-    }
-
-    if(isProducer ===true)
-    {
-      consumerTransports.forEach(transportData =>  deleteVideo(false, transportData.producerId))
-    }
-    //==============================
-  }catch(error){
-    console.log(error)
-    throw error
-  }
-}
-
-
-btnLocalStream.addEventListener('click', getLocalStream)
-btnLocalStream.disabled = false
-
-btnLocalVideo.addEventListener('click', getLocalVideo)
-btnLocalVideo.disabled = true
-
-btnLocalScrean
-btnLocalScrean.disabled = true
-
-btnFinishStream.addEventListener('click', finishStream)
-btnFinishStream.disabled = true
 },{"../config":1,"../src/connect":102,"./mediasoupParams":101,"mediasoup-client":72,"socket.io-client":88}],101:[function(require,module,exports){
 module.exports = {
   //mediasoup params
@@ -22038,5 +21879,35 @@ exports.Producer = async(producerTransport, Params) => {
     //close video tarck
   })
   return Producer
+}
+
+
+let Streaming
+exports.streamSuccess = async (audioParams, stream)=>{
+  isStreaming = true
+  localVideo.srcObject = stream;
+  Streaming = stream
+  btnFinishStream.disabled = false
+  btnLocalVideo.disabled = false
+  btnLocalStream.disabled = true
+  // btnLocalScrean.disabled = false
+
+  audioParams= { track: stream.getAudioTracks()[0], ...audioParams };
+  console.log("audioParams",audioParams)
+  return {audioParams, Streaming}
+}
+
+
+exports.addvideo = (videoParams, stream) =>{
+  isVideoON = true
+  const videoTracks = stream.getVideoTracks();
+  Streaming.addTrack(videoTracks[0])
+  localVideo.srcObject = null;
+  localVideo.srcObject = Streaming;
+  
+  videoParams = { track: stream.getVideoTracks()[0], ...videoParams };
+  console.log("videoParams",videoParams)
+
+  return {videoParams, Streaming}
 }
 },{}]},{},[100]);

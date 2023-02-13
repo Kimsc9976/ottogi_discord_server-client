@@ -4,10 +4,12 @@ const https = require('https');
 const express = require('express');
 const socketIO = require('socket.io');
 const config = require('./config');
+const bodyParser = require('body-parser');
+
 
 // Global variables
 let worker;
-let webServer;
+let httpsServer;
 let socketServer;
 let expressApp;
 let producer;
@@ -20,8 +22,8 @@ let mediasoupRouter;
   try {
     await runExpressApp();
     await runWebServer();
-    await runSocketServer();
-    await runMediasoupWorker();
+    // await runSocketServer();
+    // await runMediasoupWorker();
   } catch (err) {
     console.error(err);
   }
@@ -29,8 +31,16 @@ let mediasoupRouter;
 
 async function runExpressApp() {
   expressApp = express();
-  expressApp.use(express.json());
+  expressApp.use(bodyParser.json());
   expressApp.use(express.static(__dirname));
+
+
+  expressApp.get('*',(req, res, next)=>{
+    // you should provide path by your roomname
+    const path = '/sfu/'
+    if (req.path.indexOf(path)==0 && req.path.length > path.length) return next()
+    res.send(`You need to specify a room name in the path e.q. 'https://127.0.0.1/sfu/room'`);
+})
 
   expressApp.use((error, req, res, next) => {
     if (error) {
@@ -47,23 +57,23 @@ async function runExpressApp() {
 }
 
 async function runWebServer() {
-  const { sslKey, sslCrt } = config;
-  if (!fs.existsSync(sslKey) || !fs.existsSync(sslCrt)) {
+  const { key, cert } = config;
+  if (!fs.existsSync(key) || !fs.existsSync(cert)) {
     console.error('SSL files are not found. check your config.js file');
     process.exit(0);
   }
   const tls = {
-    cert: fs.readFileSync(sslCrt),
-    key: fs.readFileSync(sslKey),
+    key : fs.readFileSync(config.key,'utf-8'), // have to get real ssl later
+    cert : fs.readFileSync(config.cert,'utf-8')// have to get real ssl later
   };
-  webServer = https.createServer(tls, expressApp);
-  webServer.on('error', (err) => {
+  httpsServer = https.createServer(tls, expressApp);
+  httpsServer.on('error', (err) => {
     console.error('starting web server failed:', err.message);
   });
 
   await new Promise((resolve) => {
     const { listenIp, listenPort } = config;
-    webServer.listen(listenPort, listenIp, () => {
+    httpsServer.listen(listenPort, listenIp, () => {
       const listenIps = config.mediasoup.webRtcTransport.listenIps[0];
       const ip = listenIps.announcedIp || listenIps.ip;
       console.log('server is running');
@@ -73,8 +83,9 @@ async function runWebServer() {
   });
 }
 
+
 async function runSocketServer() {
-  socketServer = socketIO(webServer, {
+  socketServer = socketIO(httpsServer, {
     serveClient: false,
     path: '/server',
     log: false,
