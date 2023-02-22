@@ -13,10 +13,14 @@
 ---
 * Node.js 18.12
 * socket.io
+* socket.io-client
+* express
 * WebRTC
 * [Mediasoup v3](https://mediasoup.org/documentation/v3/mediasoup/installation/#requirements)
 * Mediasoup-client
 * bundle.js
+* react
+* browserify
 * `DB는 아직 정하지 못했음`
 <br><br>
 실시간 테스팅을 위해 사용
